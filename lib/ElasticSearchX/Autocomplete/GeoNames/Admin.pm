@@ -4,6 +4,7 @@ use strict;
 use warnings FATAL => 'all', NONFATAL => 'redefine';
 
 use List::MoreUtils qw(uniq);
+use Geo::Distance();
 use Carp;
 
 our %Place_Ranks = (
@@ -26,7 +27,6 @@ our %Place_Ranks = (
 );
 
 our %Merge_Places = (
-    ADM2  => 1,
     ADM3  => 1,
     ADM4  => 1,
     PPL   => 1,
@@ -58,6 +58,7 @@ sub new {
     my $self = {
         _place_ranks  => {%Place_Ranks},
         _merge_places => {%Merge_Places},
+        _geo_distance => Geo::Distance->new(),
         _debug        => 0
     };
 
@@ -315,6 +316,12 @@ UNIQ: while (@dup_keys) {
             my $dup_id = $dups{$compare_key};
             my $dup    = $places->{$dup_id};
             next UNIQ unless $merge_places->{ $dup->{class} };
+            my $distance = $self->{_geo_distance}->distance(
+                'kilometer',
+                @{ $current->{location} }{ 'lon', 'lat' },
+                @{ $dup->{location} }{ 'lon',     'lat' },
+            );
+            next UNIQ unless $distance < 10;
             delete $places->{$dup_id};
             $dup->{dup_of}         = $current->{id};
             $duplicates->{$dup_id} = $dup;
