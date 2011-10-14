@@ -3,7 +3,7 @@ NAME
     data from GeoNames
 
 VERSION
-    Version 0.05 - alpha
+    version 0.06
 
 DESCRIPTION
     "ElasticSearchX::Autocomplete::GeoNames" provides
@@ -37,4 +37,13 @@ COPYRIGHT AND LICENSE
     This library is free software; you can redistribute it and/or modify it
     under the same terms as Perl itself, either Perl version 5.8.7 or, at
     your option, any later version of Perl 5 you may have available.
+
+AUTHOR
+    Clinton Gormley <drtech@cpan.org>
+
+COPYRIGHT AND LICENSE
+    This software is copyright (c) 2011 by Clinton Gormley.
+
+    This is free software; you can redistribute it and/or modify it under
+    the same terms as the Perl 5 programming language system itself.
 

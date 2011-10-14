@@ -4,8 +4,8 @@ use strict;
 use warnings FATAL => 'all', NONFATAL => 'redefine';
 
 use List::MoreUtils qw(uniq);
-use Geo::Distance();
 use Carp;
+use Geo::Distance();
 
 our %Place_Ranks = (
     PCLI  => 10,    # independent political entitity
@@ -116,10 +116,13 @@ sub index_places {
             $self->_add_altnames($places);
 
             $self->_debug( 2, ' - Removing duplicates' );
-            $self->_remove_duplicates($places);
+            my $dups = $self->_remove_duplicates($places);
 
-            $self->_debug( 2, ' - Indexing phrases' );
-            $self->_index_phrases($places);
+            $self->_debug( 2, ' - Indexing places' );
+            $self->_index_places($places);
+
+            $self->_debug( 2, ' - Indexing duplicates' );
+            $self->_index_dups($dups);
 
         }
         $self->_debug( 1, "Finished processing file $filename" );
@@ -265,7 +268,13 @@ sub _remove_duplicates {
             }
         }
         $place->{parent_ids} = \@new_parents;
+        my $ancestor_id = $place->{ancestor_id};
+        $place->{ancestor_id} = $duplicates{$ancestor_id}{dup_of}
+            if $ancestor_id
+                && !$places->{$ancestor_id}
+
     }
+    return \%duplicates;
 }
 
 #===================================
@@ -274,76 +283,85 @@ sub _dedup {
     my $self       = shift;
     my $places     = shift;
     my $duplicates = shift;
-    my @ids        = uniq( @{ shift() } );
-    return unless @ids > 1;
 
-    my %dups;
-    for my $id (@ids) {
-        my $place = $places->{$id} or next;
-        my $key = join( '_', reverse @{ $place->{parent_ids} } );
-        if ( my $existing_id = $dups{$key} ) {
-            my $existing = $places->{$existing_id};
-            if ($existing) {
-                if ( $existing->{rank} >= $place->{rank} ) {
-                    my $dup = delete $places->{$id};
-                    $dup->{dup_of} = $existing_id;
-                    $duplicates->{$id} = $dup;
-                    next;
-                }
-                my $dup = delete $places->{$existing_id};
-                $dup->{dup_of} = $id;
-                $duplicates->{$existing_id} = $dup;
-            }
-        }
-        $dups{$key} = $id;
-    }
-
-    my @dup_keys = sort keys %dups;
-    return unless @dup_keys > 1;
-
-    my @uniques;
+    my @uniques = grep {$_} map { $places->{$_} } uniq @$_;
+    return unless @uniques > 1;
     my $merge_places = $self->merge_places;
 
-UNIQ: while (@dup_keys) {
-        my $current_key = shift @dup_keys;
-        my $current     = $places->{ $dups{$current_key} };
-        push @uniques, $current;
-        next unless $merge_places->{ $current->{class} };
+    my ( %tree, @deduped, %highest );
 
-        while (@dup_keys) {
-            my $compare_key = $dup_keys[0];
-            next UNIQ unless $compare_key =~ /^${current_key}/;
-            my $dup_id = $dups{$compare_key};
-            my $dup    = $places->{$dup_id};
-            next UNIQ unless $merge_places->{ $dup->{class} };
-            my $distance = $self->{_geo_distance}->distance(
-                'kilometer',
-                @{ $current->{location} }{ 'lon', 'lat' },
-                @{ $dup->{location} }{ 'lon',     'lat' },
-            );
-            next UNIQ unless $distance < 10;
-            delete $places->{$dup_id};
-            $dup->{dup_of}         = $current->{id};
-            $duplicates->{$dup_id} = $dup;
-            $current->{rank}       = $dup->{rank}
-                if $dup->{rank} > $current->{rank};
-            shift @dup_keys;
+    for my $place ( sort { $b->{rank} <=> $a->{rank} } @uniques ) {
+        my $merge;
+
+        # merge with parent if they have the same name
+        if ( $merge_places->{ $place->{class} } ) {
+            my ($parent) = grep { $_ && $merge_places->{ $_->{class} } }
+                map { $places->{$_} } @{ $place->{parent_ids} };
+            if ( $parent && $place->{name} eq $parent->{name} ) {
+                $parent->{rank} = $place->{rank}
+                    if $place->{rank} > $parent->{rank};
+                $merge = $parent;
+            }
         }
+        unless ($merge) {
+            my $branch = \%tree;
+            my $level  = 0;
+            for my $id ( reverse @{ $place->{parent_ids} } ) {
+                next unless $places->{$id};
+                $branch = $branch->{$id} ||= {};
+                $level++;
+            }
+
+            # merge with duplicate name in same area
+            $merge = $branch->{place};
+
+           # merge with descendants in the same tree with similar rank/latlong
+            unless ($merge) {
+                for my $desc ( grep $_, $self->_descendants($branch) ) {
+                    next if abs( $desc->{rank} - $place->{rank} ) > 2;
+                    my $distance = $self->{_geo_distance}->distance(
+                        'kilometer',
+                        @{ $place->{location} }{ 'lon', 'lat' },
+                        @{ $desc->{location} }{ 'lon',  'lat' },
+                    );
+                    next if $distance > 5;
+                    $merge = $desc;
+                    last;
+                }
+            }
+            unless ($merge) {
+                push @deduped, $place;
+                $branch->{place} = $place;
+                push @{ $highest{$level} }, $place;
+                next;
+            }
+        }
+        delete $places->{ $place->{id} };
+        $place->{dup_of} = $merge->{id};
+        $duplicates->{ $place->{id} } = $place;
     }
 
-    return if @uniques == 1;
-
-    my %tree;
-    for my $place (@uniques) {
-        my $branch = \%tree;
-        for my $id ( reverse @{ $place->{parent_ids} } ) {
-            next unless $places->{$id};
-            $branch = $branch->{$id} ||= {};
-        }
-        $branch->{place} = $place;
-    }
     $self->_assign_unique_ancestor( \%tree );
 
+    # the highest level duplicate doesn't require an ancestor
+    # to have a unique name
+    my ($exclude) = map { $highest{$_} } sort keys %highest;
+    return if @$exclude > 1;
+    ($exclude) = @$exclude;
+    return if $exclude->{rank} < 5;
+    delete $exclude->{ancestor_id}
+        if 1 == grep { $_->{ancestor_id} == $exclude->{ancestor_id} }
+            @deduped;
+}
+
+#===================================
+sub _descendants {
+#===================================
+    my $self   = shift;
+    my $branch = shift;
+    my $place  = $branch->{place} || '';
+    return $place, map { $self->_descendants($_) }
+        grep { $_ ne $place } values %$branch;
 }
 
 #===================================
@@ -375,6 +393,7 @@ sub _add_altnames {
     my $alt_index = $self->altnames_index;
     my $alt_type  = $self->altnames_type;
     my $es        = $self->geonames->es;
+    my $langs     = [ @{ $self->langs }, '' ];    # '' to include the default
 
     while (@all_ids) {
         my @ids = splice( @all_ids, 0, 1000 );
@@ -382,9 +401,11 @@ sub _add_altnames {
             index  => $alt_index,
             type   => $alt_type,
             scroll => '5m',
-            query  => {
-                constant_score =>
-                    { filter => { terms => { place_id => \@ids } } }
+            queryb => {
+                -filter => {
+                    place_id => \@ids,
+                    lang     => [ { '=' => $langs }, { '=' => undef } ],
+                },
             },
             sort => [
                 { place_id  => 'asc' },
@@ -395,30 +416,35 @@ sub _add_altnames {
         );
 
         while ( my $doc = $scroll->next() ) {
-            my $src  = $doc->{_source};
-            my $id   = $src->{place_id};
-            my $lang = $src->{lang} || 'default';
-            $names{$id}{$lang}{long} ||= $src->{name}
+            my $src   = $doc->{_source};
+            my $id    = $src->{place_id};
+            my $lang  = $src->{lang} || 'default';
+            my $name  = $src->{name};
+            my $entry = $names{$id}{$lang} ||= {};
+            $entry->{long} ||= $name
                 if $lang ne 'default' || $src->{preferred};
-            $names{$id}{$lang}{short} ||= $src->{name} if $src->{short}
-
+            $entry->{short} ||= $name if $src->{short};
+            $entry->{alts}{$name}++;
         }
     }
 
     for my $id ( keys %names ) {
         my $names = $names{$id};
         my $place = $places->{$id};
-        $place->{name} = $names->{default}{long}
-            || $place->{name};
+        $place->{name}       = $names->{default}{long}  || $place->{name};
         $place->{short_name} = $names->{default}{short} || $place->{name};
-        delete $names->{default};
+        for my $lang ( values %$names ) {
+            my $alts = delete $lang->{alts};
+            delete $alts->{ $lang->{$_} || '' } for qw(short long);
+            $lang->{alts} = [ keys %$alts ] if keys %$alts;
+        }
         $place->{names} = $names;
 
     }
 }
 
 #===================================
-sub _index_phrases {
+sub _index_places {
 #===================================
     my $self   = shift;
     my $places = shift;
@@ -431,30 +457,25 @@ sub _index_phrases {
     for my $id ( keys %$places ) {
         my $place = $places->{$id};
 
-        my $ancestor_id = $place->{ancestor_id}      || 0;
-        my $country_id  = $place->{parent_ids}->[-1] || 0;
-        $ancestor_id = 0 if $country_id == $ancestor_id;
-
-        my @ancestors = grep {$_} map { $places->{$_} } $ancestor_id,
-            $country_id;
-
-        my $rank = $place->{rank};
         my @parent_ids = grep { $places->{$_} } @{ $place->{parent_ids} };
+        my $country_id  = $parent_ids[-1]       || 0;
+        my $ancestor_id = $place->{ancestor_id} || 0;
+        my @ancestors = map { $places->{$_} }
+            uniq grep {$_} ( $ancestor_id, $country_id );
+
         for my $lang (@$langs) {
-            my $label = $self->_build_label( $lang, $place, @ancestors );
             $i++;
             push @phrases,
                 {
-                tokens     => [ $type_indexer->tokenize($label) ],
-                label      => $label,
-                rank       => { $lang => $rank },
-                location   => $place->{location},
                 doc_id     => $place->{id} . '_' . $lang,
                 place_id   => $place->{id},
+                rank       => { $lang => $place->{rank} },
+                location   => $place->{location},
                 parent_ids => \@parent_ids,
+                $self->_labels( $lang, $place, @ancestors )
                 };
-
         }
+
         if ( @phrases >= 4950 ) {
             $type_indexer->index_phrases(
                 phrases    => \@phrases,
@@ -464,28 +485,87 @@ sub _index_phrases {
         }
     }
     $type_indexer->index_phrases( phrases => \@phrases );
-    $self->_debug( 1, "Indexed $i phrases" );
+    $self->_debug( 1, "Indexed $i places" );
 }
 
 #===================================
-sub _build_label {
+sub _labels {
 #===================================
     my $self    = shift;
     my $lang    = shift;
     my $place   = shift;
-    my @parents = map {
+
+    my $parents = join ', ', '', map {
                $_->{names}{$lang}{short}
             || $_->{names}{$lang}{long}
             || $_->{short_name}
             || $_->{name}
     } @_;
+
+    my $default    = $place->{names}{default};
+    my $lang_names = $place->{names}{$lang};
+
     my $name
-        = $place->{names}{$lang}{long}
-        || $place->{names}{$lang}{short}
+        = $lang_names->{long}
+        || $lang_names->{short}
+        || $place->{short_name}
         || $place->{name};
 
-    return join( ', ', $name, @parents );
+    my $full = $name . $parents;
 
+    my %variations = map { $_ => 1, $_ . $parents => 1 } $name,
+        grep {$_} $lang_names->{short},
+        $lang_names->{long},
+        @{ $lang_names->{alts} || [] },
+        $default->{short},
+        $default->{long},
+        @{ $default->{alts} || [] };
+
+    my $type_indexer = $self->type_indexer;
+    my @tokens = map { { tokens => [ $type_indexer->tokenize($_) ] } }
+        keys %variations;
+    return (
+        label       => $full,
+        label_short => $name,
+        tokens      => \@tokens,
+    );
+}
+
+#===================================
+sub _index_dups {
+#===================================
+    my $self = shift;
+    my $dups = shift;
+
+    my @phrases;
+    my $i            = 0;
+    my $langs        = $self->langs;
+    my $type_indexer = $self->type_indexer;
+
+    for my $id ( keys %$dups ) {
+        my $place = $dups->{$id};
+
+        for my $lang (@$langs) {
+            $i++;
+            push @phrases,
+                {
+                doc_id   => $place->{id} . '_' . $lang,
+                place_id => $place->{id},
+                dup_of   => $place->{dup_of},
+                rank     => { $lang => 0 },
+                };
+        }
+
+        if ( @phrases >= 4950 ) {
+            $type_indexer->index_phrases(
+                phrases    => \@phrases,
+                no_refresh => 0
+            );
+            @phrases = ();
+        }
+    }
+    $type_indexer->index_phrases( phrases => \@phrases );
+    $self->_debug( 1, "Indexed $i duplicates" );
 }
 
 #===================================
@@ -543,7 +623,7 @@ sub index_altnames {
                 id    => $row->[0],
                 data  => {
                     place_id  => $row->[1],
-                    lang      => $row->[2],
+                    lang      => $row->[2] || '',
                     name      => $row->[3],
                     preferred => $row->[4] || 0,
                     short     => $row->[5] || 0
@@ -584,10 +664,10 @@ sub init_altnames_index {
                     _all       => { enabled => 0 },
                     properties => {
                         place_id  => { type => 'integer' },
-                        lang      => { type => 'string' },
-                        name      => { type => 'string', index => 'no' },
                         preferred => { type => 'integer' },
-                        short     => { type => 'boolean' }
+                        short     => { type => 'boolean' },
+                        name      => { type => 'string', index => 'no' },
+                        lang => { type => 'string', index => 'not_analyzed' },
                     }
                 }
             }
@@ -639,13 +719,27 @@ sub _open_csv {
     return { fh => $fh, csv => $csv };
 }
 
+
+1
+
+__END__
+=pod
+
 =head1 NAME
 
 ElasticSearchX::Autocomplete::GeoNames::Admin
 
+=head1 VERSION
+
+version 0.06
+
 =head1 DESCRIPTION
 
 To follow
+
+=head1 NAME
+
+ElasticSearchX::Autocomplete::GeoNames::Admin
 
 =head1 SEE ALSO
 
@@ -663,7 +757,16 @@ This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.7 or,
 at your option, any later version of Perl 5 you may have available.
 
+=head1 AUTHOR
+
+Clinton Gormley <drtech@cpan.org>
+
+=head1 COPYRIGHT AND LICENSE
+
+This software is copyright (c) 2011 by Clinton Gormley.
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
 
 =cut
 
-1

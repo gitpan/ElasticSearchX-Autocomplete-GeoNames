@@ -3,7 +3,7 @@ package ElasticSearchX::Autocomplete::GeoNames;
 use strict;
 use warnings FATAL => 'all', NONFATAL => 'redefine';
 
-use ElasticSearchX::Autocomplete();
+use ElasticSearchX::Autocomplete 0.06;
 use ElasticSearchX::Autocomplete::Util qw(
     _create_accessors _params
     _debug _try_cache cache_key
@@ -11,7 +11,7 @@ use ElasticSearchX::Autocomplete::Util qw(
 
 use Carp;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 __PACKAGE__->_create_accessors(
     ['cache'],
@@ -58,9 +58,14 @@ sub _init {
         types => {
             $self->type => {
                 custom_fields => {
-                    place_id   => { type => 'integer' },
-                    parent_ids => { type => 'integer' },
+                    parent_ids  => { type => 'integer' },
+                    place_id    => { type => 'integer' },
+                    label_short => { type => 'string', index => 'no' },
+                    dup_of      => { type => 'integer' },
                 },
+                geoloc       => 1,
+                multi_tokens => 1,
+                formatter    => \&_format_results,
                 %$params,
             }
         }
@@ -115,62 +120,45 @@ sub _get_place {
     my $self   = shift;
     my $params = shift;
 
-    my $result
-        = $params->{label}
-        ? $self->_get_place_by_label($params)
-        : $self->_get_place_by_id($params)
-        or return undef;
+    my $id   = $params->{id}   or croak "No place ID passed to get_place";
+    my $lang = $params->{lang} or croak "No lang passed to get_place";
 
-    my $fields = $result->{_source};
-    for ( 'parent_ids', 'tokens' ) {
-        my $val = $fields->{$_};
-        $fields->{$_}
-            = !defined $val ? []
-            : !ref $val     ? [$val]
-            :                 $val;
-    }
-
-    my $context = delete $fields->{context};
-    $context =~ s{/}{}g;
-    $fields->{lang} = $context;
-    $fields->{id}   = delete $fields->{place_id};
-
-    return $fields;
-}
-
-#===================================
-sub _get_place_by_label {
-#===================================
-    my $self   = shift;
-    my $params = shift;
-
-    $params->{size} = 1;
-    delete $params->{lang};
-    my $context = $params->{context};
-    my @filters = (
-        { term => { context => $context } },
-        { term => { label   => $params->{label} } }
-    );
-
-    return $self->auto_type->_context_search( $params,
-        { query => { constant_score => { filter => { and => \@filters } } } }
-    )->[0];
-}
-
-#===================================
-sub _get_place_by_id {
-#===================================
-    my $self   = shift;
-    my $params = shift;
-    my $id     = $params->{id};
-    my $lang   = $params->{lang};
-
-    return $self->es->get(
+    my $doc = $self->es->get(
         index          => $params->{index},
         type           => $params->{type},
         id             => "${id}_${lang}",
         ignore_missing => 1
-    );
+    ) or return undef;
+
+    if (my $dup_id = $doc->{_source}{dup_of}) {
+        return $self->_get_place({%$params, id=>$dup_id});
+    }
+    return _localise_place( $lang, $doc );
+}
+
+#===================================
+sub _localise_place {
+#===================================
+    my $lang = shift;
+    my $doc  = shift;
+    my $src  = $doc->{_source};
+
+    return {
+        id   => $src->{place_id},
+        lang => $lang,
+        map { $_ => $src->{$_} }
+            qw(location parent_ids rank label label_short),
+    };
+}
+
+#===================================
+sub _format_results {
+#===================================
+    my $auto    = shift;
+    my $params  = shift;
+    my $results = shift;
+    my $lang    = substr( $params->{context}, 1 );
+    $results = [ map { _localise_place( $lang, $_ ) } @$results ];
 }
 
 #===================================
@@ -185,13 +173,21 @@ sub admin {
     );
 }
 
+# ABSTRACT: Autocomplete of geolocation data from GeoNames
+
+
+1
+
+__END__
+=pod
+
 =head1 NAME
 
 ElasticSearchX::Autocomplete::GeoNames - Autocomplete of geolocation data from GeoNames
 
 =head1 VERSION
 
-Version 0.05 - alpha
+version 0.06
 
 =head1 DESCRIPTION
 
@@ -229,7 +225,16 @@ This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.7 or,
 at your option, any later version of Perl 5 you may have available.
 
+=head1 AUTHOR
+
+Clinton Gormley <drtech@cpan.org>
+
+=head1 COPYRIGHT AND LICENSE
+
+This software is copyright (c) 2011 by Clinton Gormley.
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
 
 =cut
 
-1

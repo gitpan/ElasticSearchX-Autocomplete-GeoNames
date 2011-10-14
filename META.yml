@@ -3,29 +3,28 @@ abstract: 'Autocomplete of geolocation data from GeoNames'
 author:
   - 'Clinton Gormley <drtech@cpan.org>'
 build_requires:
-  Test::Exception: 0
+  Module::Build: 0.3601
   Test::More: 0
 configure_requires:
-  Module::Build: 0.36
-generated_by: 'Module::Build version 0.3603'
+  Module::Build: 0.3601
+dynamic_config: 0
+generated_by: 'Dist::Zilla version 4.300000, CPAN::Meta::Converter version 2.110930'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: 1.4
 name: ElasticSearchX-Autocomplete-GeoNames
-provides:
-  ElasticSearchX::Autocomplete::GeoNames:
-    file: lib/ElasticSearchX/Autocomplete/GeoNames.pm
-    version: 0.05
-  ElasticSearchX::Autocomplete::GeoNames::Admin:
-    file: lib/ElasticSearchX/Autocomplete/GeoNames/Admin.pm
-recommends:
-  Geo::Distance::XS: 0.08
 requires:
-  ElasticSearchX::Autocomplete: 0.05
-  Geo::Distance: 0.16
+  Carp: 0
+  ElasticSearchX::Autocomplete: 0.06
+  ElasticSearchX::Autocomplete::Util: 0
+  Geo::Distance: 0
+  List::MoreUtils: 0
+  Text::CSV: 0
+  Text::CSV_XS: 0
+  strict: 0
+  warnings: 0
 resources:
   bugtracker: https://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames/issues
-  license: http://dev.perl.org/licenses/
-  repository: https://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames/
-version: 0.05
+  repository: git://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames.git
+version: 0.06

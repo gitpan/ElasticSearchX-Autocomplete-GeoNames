@@ -1,31 +1,43 @@
+
 use strict;
 use warnings;
-use Module::Build;
 
-my $builder = Module::Build->new(
-    module_name       => 'ElasticSearchX::Autocomplete::GeoNames',
-    license           => 'perl',
-    dist_author       => q{Clinton Gormley <drtech@cpan.org>},
-    dist_version_from => 'lib/ElasticSearchX/Autocomplete/GeoNames.pm',
-    build_requires    => {
-        'Test::More'      => 0,
-        'Test::Exception' => 0,
-    },
-    add_to_cleanup     => ['ElasticSearchX-Autocomplete-GeoNames*'],
-    create_makefile_pl => 'traditional',
-    requires           => {
-        'ElasticSearchX::Autocomplete' => '0.05',
-        'Geo::Distance'                => '0.16',
-    },
-    recommends => { 'Geo::Distance::XS' => '0.08' },
-    meta_merge => {
-        resources => {
-            repository =>
-                'https://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames/',
-            bugtracker =>
-                "https://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames/issues",
-        }
-    },
+use Module::Build 0.3601;
+
+
+my %module_build_args = (
+  "build_requires" => {
+    "Module::Build" => "0.3601",
+    "Test::More" => 0
+  },
+  "configure_requires" => {
+    "Module::Build" => "0.3601"
+  },
+  "dist_abstract" => "Autocomplete of geolocation data from GeoNames",
+  "dist_author" => [
+    "Clinton Gormley <drtech\@cpan.org>"
+  ],
+  "dist_name" => "ElasticSearchX-Autocomplete-GeoNames",
+  "dist_version" => "0.06",
+  "license" => "perl",
+  "module_name" => "ElasticSearchX::Autocomplete::GeoNames",
+  "recommends" => {},
+  "recursive_test_files" => 1,
+  "requires" => {
+    "Carp" => 0,
+    "ElasticSearchX::Autocomplete" => "0.06",
+    "ElasticSearchX::Autocomplete::Util" => 0,
+    "Geo::Distance" => 0,
+    "List::MoreUtils" => 0,
+    "Text::CSV" => 0,
+    "Text::CSV_XS" => 0,
+    "strict" => 0,
+    "warnings" => 0
+  },
+  "script_files" => []
 );
 
-$builder->create_build_script();
+
+my $build = Module::Build->new(%module_build_args);
+
+$build->create_build_script;

@@ -1,0 +1,59 @@
+{
+   "abstract" : "Autocomplete of geolocation data from GeoNames",
+   "author" : [
+      "Clinton Gormley <drtech@cpan.org>"
+   ],
+   "dynamic_config" : 0,
+   "generated_by" : "Dist::Zilla version 4.300000, CPAN::Meta::Converter version 2.110930",
+   "license" : [
+      "perl_5"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "ElasticSearchX-Autocomplete-GeoNames",
+   "prereqs" : {
+      "build" : {
+         "requires" : {
+            "Module::Build" : "0.3601"
+         }
+      },
+      "configure" : {
+         "requires" : {
+            "Module::Build" : "0.3601"
+         }
+      },
+      "runtime" : {
+         "requires" : {
+            "Carp" : 0,
+            "ElasticSearchX::Autocomplete" : "0.06",
+            "ElasticSearchX::Autocomplete::Util" : 0,
+            "Geo::Distance" : 0,
+            "List::MoreUtils" : 0,
+            "Text::CSV" : 0,
+            "Text::CSV_XS" : 0,
+            "strict" : 0,
+            "warnings" : 0
+         }
+      },
+      "test" : {
+         "requires" : {
+            "Test::More" : 0
+         }
+      }
+   },
+   "release_status" : "stable",
+   "resources" : {
+      "bugtracker" : {
+         "web" : "https://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames/issues"
+      },
+      "repository" : {
+         "type" : "git",
+         "url" : "git://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames.git",
+         "web" : "https://github.com/clintongormley/ElasticSearchX-Autocomplete-GeoNames"
+      }
+   },
+   "version" : "0.06"
+}
+
